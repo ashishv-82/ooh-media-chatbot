@@ -1,0 +1,19 @@
+# venv
+.venv/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# secrets
+.env
+
+# project data (gitignored per CLAUDE.md)
+data/chroma/
+data/cache/
+logs/
+
+# os
+.DS_Store
