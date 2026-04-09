@@ -124,6 +124,8 @@ Conventional Commits, lowercase type, short imperative subject, no trailing peri
 
 One commit per user story wherever practical; reference the story id in the body (e.g. `implements US-03`).
 
+Do **not** add a `Co-Authored-By: Claude ...` trailer (or any other AI-attribution trailer) to commit messages. Commits should look like a normal human-authored history.
+
 ## Running tests
 
 Tests live in `tests/` and use `pytest`.
