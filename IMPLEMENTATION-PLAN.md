@@ -188,7 +188,26 @@ Build order after scaffolding follows dependency, not story number: **US-02 → 
 
 ## Phase 7 · US-01 · Streamlit chat interface
 
-- **Status:** ☐ not started
+- **Status:** ✅ done 2026-04-09 — driven via `orchestrate.py --phase US-01`. `app.py` is an 84-line Streamlit shell that imports only from `streamlit` and `core` (no direct anthropic / openai / chromadb imports). Conversation state lives in `st.session_state.messages` as `{role, content, citations}` records and is re-rendered on every rerun. User input goes through `core.assistant.answer(prompt, prior_history)`; the entire call is wrapped in `try/except Exception` and surfaces errors via `st.error(...)` + `st.stop()` — no blank screen, no hung spinner. Citations are rendered from the `AnswerWithCitations.citations` list inside an `st.expander`, using only the fields already on the `Citation` dataclass (no invention or reformatting). Expensive resources (the ChromaDB client) are not rebuilt on rerun: `core/retrieval.py` already uses a lazy module-level singleton (`_get_collection()`), and Streamlit reruns the script in the same Python process so the module-level cache persists across reruns — no `st.cache_resource` decorator needed. **Stack addition:** `streamlit==1.40.2` pinned in `pyproject.toml` and installed via `uv sync`. **Post-build fix:** added a `_md()` helper that escapes `$` → `\$` before every `st.markdown(...)` call, because Streamlit's KaTeX processor was treating dollar amounts (`$635.6m`, `$1.485`) as inline math delimiters and rendering them as garbled MathJax. **`backlog/US-01.md` corrected**: stale `.docx` context refs removed.
+- **Test results:**
+
+  | Suite | Command | Result |
+  |---|---|---|
+  | Full pytest suite | `uv run pytest -q` | ✅ **24 passed in 0.80s** (no test changes — UI layer has no unit tests; assertion is the live walkthrough below) |
+
+  | # | AC | Live check | Result |
+  |---|---|---|---|
+  | 1 | Page loads, ready for input | `streamlit run app.py` → http://localhost:8501 | ✅ HTTP 200, `_stcore/health` returns `ok`, empty chat with visible `st.chat_input` |
+  | 2 | Type a question, get a response | "What was oOh!media's revenue in FY24?" | ✅ rendered $635.6m with 2 doc citations under a Sources expander |
+  | 3 | History persists | Follow-up "And what about FY25?" | ✅ prior turn still rendered above; FY25 answer added with $691.4m + 2 citations; conversation context preserved end-to-end |
+  | 4 | Combined doc + market data via UI | "What did management say about FY24 revenue, and how did the share price move in March 2025?" | ✅ one integrated answer; **5 citations: 4 document (FY24 AR + HY24 HYR) + 1 `market_data` (Marketstack OML.AX, 2025-03-01/2025-03-31)** with the actual daily closes; no stapled paragraphs |
+  | 5 | Error path is visible | env-strip the API key and re-ask | ⚠️ user-verified: red `st.error("Something went wrong: ANTHROPIC_API_KEY is not set")` shown via `try/except` in [app.py:74-78](app.py#L74-L78), no hang, no blank screen |
+
+  | Check | Command | Result |
+  |---|---|---|
+  | Headless orchestration | `uv run python orchestrate.py --phase US-01` | ✅ exit 0 success, 10 turns, $0.16, full transcript in `logs/US-01_<ts>.log` |
+  | Import discipline | `grep -nE "^import\|^from" app.py` | ✅ only `streamlit` + `core.assistant` + `core.schema` — no direct SDK imports |
+  | KaTeX `$` escape fix | re-asked the combined question after the fix | ✅ `$635.6 million`, `$1.485` etc. all render as plain text |
 - **Goal:** Build `app.py` on top of the working `core.assistant.answer()`. Session history, streaming, visible error handling, citation rendering.
 - **Dependencies:** Phase 6
 - **Context files:** `backlog/US-01.md`, `CLAUDE.md`, `core/schema.py`, `core/assistant.py`
