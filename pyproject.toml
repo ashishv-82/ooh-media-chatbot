@@ -10,6 +10,7 @@ dependencies = [
     "openai==2.31.0",
     "pdfplumber==0.11.4",
     "python-dotenv==1.2.2",
+    "streamlit==1.40.2",
 ]
 
 [dependency-groups]
