@@ -159,7 +159,24 @@ Build order after scaffolding follows dependency, not story number: **US-02 → 
 
 ## Phase 6 · US-05 · Combined document + market data
 
-- **Status:** ☐ not started
+- **Status:** ✅ done 2026-04-09 — driven via `orchestrate.py --phase US-05`. No changes to `core/prices.py`, `core/retrieval.py`, or `core/assistant.py` (the tool-use loop already supports both tools and shares global citation numbering across them — this was the explicit DoD). System prompt in `core/llm.py` extended with three new instructions: (3) call BOTH tools for questions that span documents and market data and weave the evidence into one integrated answer with distinct inline markers, (8) when one source is missing, answer fully from the available source and explicitly state what's missing rather than refusing the whole question, and (9) the partial-answer rule. Two new tests added to `tests/test_assistant.py` covering the combined-tools happy path and the partial-answer-when-market-data-unavailable path. Helper script `scripts/verify_us05.py` (live API harness) added for end-to-end checks. **`backlog/US-05.md` corrected**: stale `.docx` context refs removed.
+- **Test results:**
+
+  | Suite | Command | Result |
+  |---|---|---|
+  | Assistant unit tests | `uv run pytest tests/test_assistant.py -q` | ✅ **6 passed in 1.01s** (4 prior US-03 tests + 2 new US-05 tests, all stubbed — no live API) |
+  | Full suite | `uv run pytest -q` | ✅ **24 passed in 0.80s** |
+
+  | # | New US-05 test | Verifies | Result |
+  |---|---|---|---|
+  | 1 | `test_combined_document_and_market_data_answer` | model calls both tools in one turn; both `annual_report` and `market_data` citations present; AC1–3, AC5 | ✅ |
+  | 2 | `test_partial_answer_when_market_data_unavailable` | model still answers from documents when price tool returns empty; explicit "missing" mention; AC4 | ✅ |
+
+  | Check | Command / Question | Result |
+  |---|---|---|
+  | Headless orchestration | `uv run python orchestrate.py --phase US-05` | ✅ exit 0 success, 30 turns, full transcript in `logs/US-05_<ts>.log` |
+  | Live showcase (the brief's named scenario) | "What did management say about revenue in the FY24 results, and how did the share price move in the following quarter?" | ✅ one coherent multi-paragraph answer; **8 citations**: 6 document (FY24 AR ×3, FY25 AR ×1, HY24 HYR ×2) + **2 `market_data`** (Marketstack OML.AX, Feb–May 2025); reported AUD 1.575 → 1.680 (~13% rise) tied explicitly back to management's optimistic FY24 commentary |
+  | AC4 partial answer (future date) | "What did management say about FY24 revenue, and what was the OML closing price on 14 February 2030?" | ✅ document side answered with 3 doc citations; market side explicitly refused with "Market data... is **not available**... I will not fabricate a figure"; zero `market_data` citations in the list |
 - **Goal:** Validate and, if needed, refine the system prompt so the tool-use loop can call both tools in a single turn and produce one coherent answer. Minimal new code — this is mostly prompt work and tests.
 - **Dependencies:** Phase 5
 - **Context files:** `backlog/US-05.md`, `CLAUDE.md`, `core/assistant.py`, `core/llm.py`, `Candidate_01_Candidate_Brief.docx`
