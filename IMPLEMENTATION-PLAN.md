@@ -201,7 +201,7 @@ Build order after scaffolding follows dependency, not story number: **US-02 → 
   | 2 | Type a question, get a response | "What was oOh!media's revenue in FY24?" | ✅ rendered $635.6m with 2 doc citations under a Sources expander |
   | 3 | History persists | Follow-up "And what about FY25?" | ✅ prior turn still rendered above; FY25 answer added with $691.4m + 2 citations; conversation context preserved end-to-end |
   | 4 | Combined doc + market data via UI | "What did management say about FY24 revenue, and how did the share price move in March 2025?" | ✅ one integrated answer; **5 citations: 4 document (FY24 AR + HY24 HYR) + 1 `market_data` (Marketstack OML.AX, 2025-03-01/2025-03-31)** with the actual daily closes; no stapled paragraphs |
-  | 5 | Error path is visible | env-strip the API key and re-ask | ⚠️ user-verified: red `st.error("Something went wrong: ANTHROPIC_API_KEY is not set")` shown via `try/except` in [app.py:74-78](app.py#L74-L78), no hang, no blank screen |
+  | 5 | Error path is visible | `env -u ANTHROPIC_API_KEY .venv/bin/streamlit run app.py` then ask any question | ✅ verified live in browser: red `st.error("Something went wrong: ANTHROPIC_API_KEY is not set")` shown via `try/except` in [app.py:74-78](app.py#L74-L78), no hang, no blank screen, page stays interactive |
 
   | Check | Command | Result |
   |---|---|---|
