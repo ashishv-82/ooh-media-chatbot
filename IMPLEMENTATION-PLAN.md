@@ -45,7 +45,7 @@ Build order after scaffolding follows dependency, not story number: **US-02 → 
 
 ## Phase 2 · Orchestration driver
 
-- **Status:** ☐ not started
+- **Status:** ✅ done 2026-04-09 — `orchestrate.py` ships a hard-coded PHASES map (US-02..US-07 in dependency order), `--list` / `--phase` / `--all` / `--dry-run` flags, and shells out to `claude -p ... --output-format stream-json --verbose` with a per-run timestamped log under `logs/<phase>_<ts>.log`. `--list` and `--dry-run` verified; first real `--phase` invocation deferred to Phase 3.
 - **Goal:** Build `orchestrate.py` as a first-class deliverable. It loads a phase definition (story id + prompt file + context files), shells out to `claude -p` headless with the prompt piped in, streams output to `logs/<phase>.log`, and returns a non-zero exit if the headless run fails. Supports `--phase US-02` to run a single phase and `--all` to run the full post-scaffold sequence.
 - **Dependencies:** Phase 1.5
 - **Context files:** `CLAUDE.md`, `ARCHITECTURE.md`, `backlog/US-*.md` (as inputs the driver routes)
@@ -63,7 +63,7 @@ Build order after scaffolding follows dependency, not story number: **US-02 → 
 
 ## Phase 3 · US-02 · Knowledge layer
 
-- **Status:** ☐ not started
+- **Status:** ✅ done 2026-04-09 — 5 PDFs ingested (annual reports FY24/FY25, half-year reports HY24/HY25, FY25 full-year results presentation), 1209 chunks total in `oohmedia_investor` chroma collection. pdfplumber → page-aware sliding-window chunking (800/100, never crossing page boundaries) → OpenAI text-embedding-3-small → Chroma upsert with deterministic IDs `{source_id}:p{page}:c{idx}` for idempotency. Re-run produced 1209 → 1209 (no duplicates). Sample query "revenue and EBITDA in FY24" returned 5 highly relevant chunks across 4 docs with correct page numbers. 7 unit tests pass (chunker + idempotency + retrieval-shape, all mocked, no live API).
 - **Goal:** Download a justifiable set of oOh!media investor PDFs, implement `core/ingest.py` and `core/retrieval.py`, populate ChromaDB with page-level citation metadata. Write `data/pdfs/SOURCES.md`.
 - **Dependencies:** Phase 2
 - **Context files:** `backlog/US-02.md`, `CLAUDE.md`, `ARCHITECTURE.md`, `core/schema.py`
