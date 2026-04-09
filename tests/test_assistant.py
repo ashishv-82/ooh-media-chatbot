@@ -1,11 +1,13 @@
-"""US-03 — tool-use loop and citation extraction tests for core/assistant.py.
+"""US-03/US-05 — tool-use loop and citation extraction tests for core/assistant.py.
 
 These tests stub the Anthropic client and core.retrieval so the suite runs
 offline. The point is to verify that the loop:
   - calls search_documents when the model issues a tool_use,
   - numbers chunks globally across multiple tool calls,
   - extracts only valid [N] markers into the citations list,
-  - returns an empty citations list on a refusal (empty retrieval).
+  - returns an empty citations list on a refusal (empty retrieval),
+  - handles both search_documents and get_price_history in a single turn (US-05),
+  - produces partial answers when one source is unavailable (US-05 AC4).
 """
 
 from __future__ import annotations
@@ -237,3 +239,165 @@ def test_invalid_marker_indices_are_dropped(monkeypatch):
     result = assistant_mod.answer("anything", history=None)
     assert len(result.citations) == 1
     assert result.citations[0].period == "FY24"
+
+
+# ---------- US-05: combined document + market data in one turn ----------
+
+
+def _make_market_citation(period: str, snippet: str) -> Citation:
+    return Citation(
+        source_id="marketstack_oml_ax",
+        doc_title="OML.AX Market Data (Marketstack)",
+        doc_type="market_data",
+        period=period,
+        page=None,
+        snippet=snippet,
+        url=None,
+    )
+
+
+def test_combined_document_and_market_data_answer(monkeypatch):
+    """US-05 AC1-3: model calls both tools and produces combined citations."""
+    doc_chunk = _make_citations(("fy24_annual_report", "FY24", 12, "Revenue A$635.6m in FY24"))[0]
+    market_chunk = _make_market_citation(
+        "2024-07-01/2024-09-30",
+        "2024-07-01: close AUD 1.450; 2024-09-30: close AUD 1.520",
+    )
+
+    monkeypatch.setattr(
+        assistant_mod.retrieval,
+        "search",
+        lambda q, k=5: [doc_chunk],
+    )
+
+    # Simulate _format_price_result returning a market_data Citation by patching
+    # _format_price_result directly so we don't need a real API key.
+    def fake_format_price(tool_input, start_index):
+        text = (
+            f"Market data for OML.AX from 2024-07-01 to 2024-09-30.\n"
+            f"[{start_index}] OML.AX Market Data (market_data, 2024-07-01/2024-09-30)\n"
+            f"{market_chunk.snippet}\n"
+            f"Cite this data as [{start_index}] in your answer."
+        )
+        return (text, {start_index: market_chunk})
+
+    monkeypatch.setattr(assistant_mod, "_format_price_result", fake_format_price)
+
+    responses = iter(
+        [
+            # Model calls both tools simultaneously in one turn.
+            _Response(
+                stop_reason="tool_use",
+                content=[
+                    _ToolUseBlock(
+                        id="t1",
+                        name="search_documents",
+                        input={"query": "FY24 revenue management commentary"},
+                    ),
+                    _ToolUseBlock(
+                        id="t2",
+                        name="get_price_history",
+                        input={"start": "2024-07-01", "end": "2024-09-30"},
+                    ),
+                ],
+            ),
+            _Response(
+                stop_reason="end_turn",
+                content=[
+                    _TextBlock(
+                        text=(
+                            "Management reported revenue of A$635.6m in FY24 [1]. "
+                            "In the following quarter (Q3 2024), the share price moved "
+                            "from AUD 1.450 to AUD 1.520 [2]."
+                        )
+                    )
+                ],
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        assistant_mod.llm, "call_messages", lambda messages, **kw: next(responses)
+    )
+
+    result = assistant_mod.answer(
+        "What did management say about revenue in FY24 and how did the share price move after?",
+        history=None,
+    )
+
+    assert "[1]" in result.text
+    assert "[2]" in result.text
+    assert len(result.citations) == 2
+    # AC2: document citation present
+    assert any(c.doc_type == "annual_report" for c in result.citations)
+    # AC3: market_data citation present
+    assert any(c.doc_type == "market_data" for c in result.citations)
+    # AC5: single coherent answer (both markers in same text block, not two fragments)
+    assert result.text.count("[1]") >= 1
+    assert result.text.count("[2]") >= 1
+
+
+def test_partial_answer_when_market_data_unavailable(monkeypatch):
+    """US-05 AC4: answers from docs only when price data is missing, states gap."""
+    doc_chunk = _make_citations(("fy24_annual_report", "FY24", 12, "Revenue A$635.6m in FY24"))[0]
+
+    monkeypatch.setattr(
+        assistant_mod.retrieval,
+        "search",
+        lambda q, k=5: [doc_chunk],
+    )
+
+    def fake_format_price_unavailable(tool_input, start_index):
+        return (
+            "No OML.AX price data found for the period 2035-01-01 to 2035-03-31. "
+            "The exchange may not have traded on the requested dates.",
+            {},
+        )
+
+    monkeypatch.setattr(assistant_mod, "_format_price_result", fake_format_price_unavailable)
+
+    responses = iter(
+        [
+            _Response(
+                stop_reason="tool_use",
+                content=[
+                    _ToolUseBlock(
+                        id="t1",
+                        name="search_documents",
+                        input={"query": "FY24 revenue management commentary"},
+                    ),
+                    _ToolUseBlock(
+                        id="t2",
+                        name="get_price_history",
+                        input={"start": "2035-01-01", "end": "2035-03-31"},
+                    ),
+                ],
+            ),
+            _Response(
+                stop_reason="end_turn",
+                content=[
+                    _TextBlock(
+                        text=(
+                            "Management reported revenue of A$635.6m in FY24 [1]. "
+                            "Market data for Q1 2035 is not available — "
+                            "no price data exists for that future period."
+                        )
+                    )
+                ],
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        assistant_mod.llm, "call_messages", lambda messages, **kw: next(responses)
+    )
+
+    result = assistant_mod.answer(
+        "What did management say about revenue in FY24 and how did the share price move in Q1 2035?",
+        history=None,
+    )
+
+    # AC4: doc citation present, no market_data citation
+    assert len(result.citations) == 1
+    assert result.citations[0].doc_type == "annual_report"
+    assert not any(c.doc_type == "market_data" for c in result.citations)
+    # AC4: text explicitly mentions missing market data
+    assert "not available" in result.text.lower() or "no price" in result.text.lower()
