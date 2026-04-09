@@ -68,4 +68,7 @@ else
 fi
 
 bold "==> Bootstrap complete"
-echo "Next: edit .env to add your API keys, then run 'uv run python preflight.py' (after Phase 1.5)."
+echo "Next:"
+echo "  1. Edit .env to add your API keys"
+echo "  2. source .venv/bin/activate"
+echo "  3. uv run python scripts/preflight.py"

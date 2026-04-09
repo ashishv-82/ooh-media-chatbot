@@ -33,60 +33,64 @@ def _render_citations(citations: list[Citation]) -> None:
             st.caption(_md(cit.snippet))
 
 
-st.set_page_config(page_title="oOh!media Investor Chat", page_icon="📈")
-st.title("oOh!media Investor Chat")
-st.caption("Ask questions about oOh!media investor materials.")
+st.set_page_config(page_title="oOh!Media Investor Chat", page_icon="📈")
 
-# session_state schema:
-#   messages: list of {role, content, citations}
-#   citations is list[Citation] for assistant turns, None for user turns
+# Widen the default centered column and match the bottom input bar
+st.markdown(
+    """<style>
+    .block-container { max-width: 56rem !important; }
+    [data-testid="stBottomBlockContainer"] { max-width: 56rem !important; margin-left: auto; margin-right: auto; }
+    </style>""",
+    unsafe_allow_html=True,
+)
+
+st.markdown("<h1 style='text-align:center'>oOh!Media Investor Chat</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align:center;color:grey'>Ask questions about oOh!Media investor materials.</p>", unsafe_allow_html=True)
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Render prior conversation turns
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(_md(msg["content"]))
-        if msg.get("citations"):
-            _render_citations(msg["citations"])
-
-# Input box — returns None when empty
-prompt = st.chat_input("Ask a question about oOh!media...")
-
+# ── Capture new user input ──
+prompt = st.chat_input("Ask a question about oOh!Media...")
 if prompt:
-    # Show the user's message immediately
-    with st.chat_message("user"):
-        st.markdown(_md(prompt))
-
-    # Build history: everything already in state (user + assistant turns)
-    # assistant.answer() appends the current question itself, so we pass
-    # only the prior turns here.
     prior_history = [
         {"role": m["role"], "content": m["content"]}
         for m in st.session_state.messages
     ]
-
-    # Persist the user turn
+    # Append user message and a "thinking" placeholder for the assistant.
+    # The loop below renders both so they always come from one code path.
     st.session_state.messages.append(
         {"role": "user", "content": prompt, "citations": None}
     )
-
-    with st.chat_message("assistant"):
-        with st.spinner("Thinking…"):
-            try:
-                result = answer(prompt, prior_history)
-            except Exception as exc:
-                st.error(f"Something went wrong: {exc}")
-                st.stop()
-
-        st.markdown(_md(result.text))
-        _render_citations(result.citations)
-
-    # Persist the assistant turn (with citations for re-rendering on reload)
     st.session_state.messages.append(
-        {
+        {"role": "assistant", "content": None, "citations": None,
+         "_pending": True, "_question": prompt, "_history": prior_history}
+    )
+
+# ── Single rendering loop — sole source of truth ──
+for msg in st.session_state.messages:
+    if msg.get("_pending"):
+        # Render the spinner; answer() blocks here so the placeholder stays visible
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking…"):
+                try:
+                    result = answer(msg["_question"], msg["_history"])
+                except Exception as exc:
+                    st.error(f"Something went wrong: {exc}")
+                    st.stop()
+            st.markdown(_md(result.text))
+            _render_citations(result.citations)
+        # Replace the placeholder with the real answer in state, then rerun
+        # so the next render loop sees a plain message (no _pending flag).
+        idx = st.session_state.messages.index(msg)
+        st.session_state.messages[idx] = {
             "role": "assistant",
             "content": result.text,
             "citations": result.citations,
         }
-    )
+        st.rerun()
+    else:
+        with st.chat_message(msg["role"]):
+            st.markdown(_md(msg["content"]))
+            if msg.get("citations"):
+                _render_citations(msg["citations"])

@@ -1,4 +1,4 @@
-# Investor materials — corpus justification (US-02 AC4, AC5)
+# Investor materials - corpus justification (US-02 AC4, AC5)
 
 All five PDFs below were sourced from the oOh!media investor centre at
 <https://investors.oohmedia.com.au/investor-centre/> (presentations subpage:

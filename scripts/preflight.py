@@ -41,7 +41,7 @@ _warnings: list[str] = []
 
 
 def _line(label: str, status: str, colour: str, detail: str = "") -> None:
-    print(f"  [{colour}{status}{RESET}] {label}" + (f"  — {detail}" if detail else ""))
+    print(f"  [{colour}{status}{RESET}] {label}" + (f"  - {detail}" if detail else ""))
 
 
 def passed(label: str, detail: str = "") -> None:
@@ -71,7 +71,7 @@ def check_venv() -> None:
     if not in_venv:
         warned(
             "running inside a venv",
-            "not in a venv — prefer 'uv run python scripts/preflight.py' or 'source .venv/bin/activate'",
+            "not in a venv - prefer 'uv run python scripts/preflight.py' or 'source .venv/bin/activate'",
         )
         return
     try:
@@ -86,8 +86,7 @@ def check_venv() -> None:
         warned("project .venv active", str(e))
 
 
-REQUIRED_KEYS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY")
-MARKET_KEYS = ("ALPHAVANTAGE_API_KEY", "MARKETSTACK_API_KEY")
+REQUIRED_KEYS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MARKETSTACK_API_KEY")
 
 
 def check_env_vars() -> None:
@@ -96,15 +95,7 @@ def check_env_vars() -> None:
         if os.environ.get(key, "").strip():
             passed(key, "set")
         else:
-            failed(key, f"missing — add it to .env in the repo root")
-    market_set = [k for k in MARKET_KEYS if os.environ.get(k, "").strip()]
-    if market_set:
-        passed("market data key", ", ".join(market_set))
-    else:
-        failed(
-            "market data key",
-            "set at least one of ALPHAVANTAGE_API_KEY or MARKETSTACK_API_KEY in .env",
-        )
+            failed(key, f"missing - add it to .env in the repo root")
     model = os.environ.get("ANTHROPIC_MODEL", "").strip() or "claude-sonnet-4-6"
     passed("ANTHROPIC_MODEL", model)
 
@@ -160,102 +151,47 @@ CACHE_DIR = REPO_ROOT / "data" / "cache"
 
 
 def check_market_data() -> None:
-    """Marketstack v2 over HTTPS with `OML.AX` is the primary provider for OML.
-
-    Alpha Vantage is checked only as a soft secondary — its free tier does not
-    cover ASX listings (returns empty `{}`), so a failure there is a WARN, not
-    a FAIL, as long as Marketstack succeeds. See DECISIONS.md (2026-04-09).
-    """
+    """Marketstack v2 over HTTPS with `OML.AX` is the primary (and only) provider for OML."""
     section("Market data")
     ms_key = os.environ.get("MARKETSTACK_API_KEY", "").strip()
-    av_key = os.environ.get("ALPHAVANTAGE_API_KEY", "").strip()
-    if not (ms_key or av_key):
-        failed("market data call", "no provider key set (MARKETSTACK_API_KEY or ALPHAVANTAGE_API_KEY)")
+    if not ms_key:
+        failed("marketstack v2", "MARKETSTACK_API_KEY not set - add it to .env")
         return
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    ms_ok = False
+    cache_path = CACHE_DIR / "preflight_marketstack_v2_OML.AX.json"
+    if cache_path.exists():
+        passed("marketstack v2 (cached)", str(cache_path.relative_to(REPO_ROOT)))
+        return
+    try:
+        import httpx
 
-    # --- Marketstack v2 (primary) ---
-    if ms_key:
-        cache_path = CACHE_DIR / "preflight_marketstack_v2_OML.AX.json"
-        if cache_path.exists():
-            passed("marketstack v2 (cached)", str(cache_path.relative_to(REPO_ROOT)))
-            ms_ok = True
-        else:
-            try:
-                import httpx
-
-                r = httpx.get(
-                    "https://api.marketstack.com/v2/eod",
-                    params={
-                        "access_key": ms_key,
-                        "symbols": "OML.AX",
-                        "limit": 1,
-                    },
-                    timeout=20.0,
-                )
-                r.raise_for_status()
-                data = r.json()
-                if data.get("data"):
-                    cache_path.write_text(json.dumps(data))
-                    sample = data["data"][0]
-                    detail = (
-                        f"OML.AX close={sample.get('close')} on {sample.get('date','?')[:10]}, "
-                        f"cached to {cache_path.relative_to(REPO_ROOT)}"
-                    )
-                    passed("marketstack v2 live", detail)
-                    ms_ok = True
-                else:
-                    failed(
-                        "marketstack v2 live",
-                        f"no data in response: {json.dumps(data)[:200]}",
-                    )
-            except Exception as e:  # noqa: BLE001
-                failed("marketstack v2 live", f"{type(e).__name__}: {e}")
-    else:
-        warned("marketstack v2", "MARKETSTACK_API_KEY not set — primary provider unavailable")
-
-    # --- Alpha Vantage (secondary scaffold; expected to WARN for OML on free tier) ---
-    if av_key:
-        cache_path = CACHE_DIR / "preflight_alphavantage_OML.AX.json"
-        if cache_path.exists():
-            passed("alpha vantage (cached)", str(cache_path.relative_to(REPO_ROOT)))
-        else:
-            try:
-                import httpx
-
-                r = httpx.get(
-                    "https://www.alphavantage.co/query",
-                    params={
-                        "function": "TIME_SERIES_DAILY",
-                        "symbol": "OML.AX",
-                        "outputsize": "compact",
-                        "apikey": av_key,
-                    },
-                    timeout=20.0,
-                )
-                r.raise_for_status()
-                data = r.json()
-                if "Time Series (Daily)" in data:
-                    cache_path.write_text(json.dumps(data))
-                    passed("alpha vantage live", f"cached to {cache_path.relative_to(REPO_ROOT)}")
-                else:
-                    note = data.get("Note") or data.get("Information") or json.dumps(data)[:200]
-                    warned(
-                        "alpha vantage live",
-                        f"no time series for OML.AX (expected on free tier — AV does not cover ASX): {note}",
-                    )
-            except Exception as e:  # noqa: BLE001
-                warned("alpha vantage live", f"{type(e).__name__}: {e}")
-    else:
-        warned("alpha vantage", "ALPHAVANTAGE_API_KEY not set (scaffold provider, not required)")
-
-    if not ms_ok:
-        failed(
-            "market data",
-            "Marketstack v2 did not return data and AV does not cover OML on free tier — no usable provider",
+        r = httpx.get(
+            "https://api.marketstack.com/v2/eod",
+            params={
+                "access_key": ms_key,
+                "symbols": "OML.AX",
+                "limit": 1,
+            },
+            timeout=20.0,
         )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("data"):
+            cache_path.write_text(json.dumps(data))
+            sample = data["data"][0]
+            detail = (
+                f"OML.AX close={sample.get('close')} on {sample.get('date','?')[:10]}, "
+                f"cached to {cache_path.relative_to(REPO_ROOT)}"
+            )
+            passed("marketstack v2 live", detail)
+        else:
+            failed(
+                "marketstack v2 live",
+                f"no data in response: {json.dumps(data)[:200]}",
+            )
+    except Exception as e:  # noqa: BLE001
+        failed("marketstack v2 live", f"{type(e).__name__}: {e}")
 
 
 def check_chroma() -> None:
@@ -294,7 +230,7 @@ def check_pdfs() -> None:
     warned(
         "data/pdfs/",
         (
-            "no PDFs yet — fixed in Phase 3 (US-02). "
+            "no PDFs yet - fixed in Phase 3 (US-02). "
             "Download from https://investors.oohmedia.com.au/investor-centre/ "
             "at minimum two doc types across two periods (e.g. FY24 annual report + an investor presentation, "
             "and one more period). Save them under data/pdfs/ and add a SOURCES.md listing url, type, period."
@@ -305,12 +241,12 @@ def check_pdfs() -> None:
 # ---------- main ----------
 
 def main() -> int:
-    print(f"{BOLD}oOh!media Investor Chat — preflight{RESET}")
+    print(f"{BOLD}oOh!media Investor Chat - preflight{RESET}")
     check_venv()
     check_env_vars()
-    # Stop early if required env vars are missing — the API calls would just fail noisily.
+    # Stop early if required env vars are missing - the API calls would just fail noisily.
     if _failures:
-        print(f"\n{RED}{BOLD}preflight FAILED{RESET}: {len(_failures)} issue(s) — {', '.join(_failures)}")
+        print(f"\n{RED}{BOLD}preflight FAILED{RESET}: {len(_failures)} issue(s) - {', '.join(_failures)}")
         print("Fix the env-var issues above and re-run.")
         return 1
     check_anthropic()
@@ -321,14 +257,14 @@ def main() -> int:
 
     print()
     if _failures:
-        print(f"{RED}{BOLD}preflight FAILED{RESET}: {len(_failures)} issue(s) — {', '.join(_failures)}")
+        print(f"{RED}{BOLD}preflight FAILED{RESET}: {len(_failures)} issue(s) - {', '.join(_failures)}")
         if _warnings:
-            print(f"{YELLOW}warnings:{RESET} {len(_warnings)} — {', '.join(_warnings)}")
+            print(f"{YELLOW}warnings:{RESET} {len(_warnings)} - {', '.join(_warnings)}")
         return 1
     if _warnings:
-        print(f"{GREEN}{BOLD}preflight OK{RESET} with {len(_warnings)} warning(s) — {', '.join(_warnings)}")
+        print(f"{GREEN}{BOLD}preflight OK{RESET} with {len(_warnings)} warning(s) - {', '.join(_warnings)}")
     else:
-        print(f"{GREEN}{BOLD}preflight OK{RESET} — all checks green")
+        print(f"{GREEN}{BOLD}preflight OK{RESET} - all checks green")
     return 0
 
 

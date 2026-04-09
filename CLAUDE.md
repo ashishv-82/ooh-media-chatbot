@@ -1,4 +1,4 @@
-# CLAUDE.md — Rules for the coding agent
+# CLAUDE.md - Rules for the coding agent
 
 You are building the oOh!media Investor Chat described in `ARCHITECTURE.md`. Read `ARCHITECTURE.md` and the four `Candidate_0*.docx` files before writing code. These rules are non-negotiable.
 
@@ -11,7 +11,7 @@ You are building the oOh!media Investor Chat described in `ARCHITECTURE.md`. Rea
 - `streamlit` for the web UI.
 - Official `mcp` Python SDK (stdio transport) for the second surface.
 - `anthropic` SDK, model from env var `ANTHROPIC_MODEL` (default `claude-sonnet-4-6`), for all reasoning.
-- Marketstack (v2, HTTPS, symbol `OML.AX`) is the primary `PriceProvider` for OML; Alpha Vantage is kept behind the same interface as a scaffold but does not cover ASX on free tier. See `DECISIONS.md`.
+- Marketstack (v2, HTTPS, symbol `OML.AX`) is the `PriceProvider` for OML. See `DECISIONS.md`.
 
 Do not introduce LangChain, LlamaIndex, FAISS, sentence-transformers, FastAPI, or any other framework. If a requirement seems to need one, stop and ask.
 
@@ -46,7 +46,7 @@ Do not introduce LangChain, LlamaIndex, FAISS, sentence-transformers, FastAPI, o
 │   ├── retrieval.py              # ChromaDB search wrapper
 │   ├── embeddings.py             # ONLY module that imports openai
 │   ├── llm.py                    # ONLY module that imports anthropic
-│   ├── prices.py                 # PriceProvider + AlphaVantage/Marketstack impls
+│   ├── prices.py                 # PriceProvider + Marketstack impl
 │   ├── ingest.py                 # pdfplumber -> chunks -> Chroma (idempotent)
 │   └── schema.py                 # Citation, Chunk, AnswerWithCitations dataclasses
 ├── app.py                        # Streamlit UI; imports core.assistant only
@@ -85,7 +85,7 @@ class AnswerWithCitations:
     citations: list[Citation]  # ordered, matching the inline markers
 ```
 
-Every field in `Citation` must be populated during ingestion (for documents) or during the price tool call (for market data) and must flow unchanged into the final `AnswerWithCitations`. The LLM is not allowed to invent, merge, or reword citation fields — it selects them from tool results only. Streamlit and the MCP server both render citations from this structure.
+Every field in `Citation` must be populated during ingestion (for documents) or during the price tool call (for market data) and must flow unchanged into the final `AnswerWithCitations`. The LLM is not allowed to invent, merge, or reword citation fields - it selects them from tool results only. Streamlit and the MCP server both render citations from this structure.
 
 ## Refusal rules (US-06, non-negotiable)
 
@@ -97,18 +97,17 @@ The assistant must:
 4. **Decline out-of-scope questions explicitly.** Say what is missing (e.g. "the FY23 annual report is not in the indexed corpus") rather than going silent or speculating.
 5. **Partial answers are allowed** when one source is available and the other is not (US-05 AC4), but the missing side must be stated.
 
-These rules live in the system prompt inside `core/llm.py` and are also enforced by returning empty tool results when no evidence is found — the model must handle empty results as a refusal trigger, not as license to guess.
+These rules live in the system prompt inside `core/llm.py` and are also enforced by returning empty tool results when no evidence is found - the model must handle empty results as a refusal trigger, not as license to guess.
 
 ## Framework gotchas the agent must handle
 
-- **ChromaDB**: use `PersistentClient(path="data/chroma")`. Pin `chromadb` in `pyproject.toml` — minor versions have broken the client API before. Use a single named collection, e.g. `oohmedia_investor`.
+- **ChromaDB**: use `PersistentClient(path="data/chroma")`. Pin `chromadb` in `pyproject.toml` - minor versions have broken the client API before. Use a single named collection, e.g. `oohmedia_investor`.
 - **pdfplumber**: always close the PDF (`with pdfplumber.open(...) as pdf`). Strip `None` from `page.extract_text()`. Record `page.page_number` (1-indexed) on every chunk.
-- **Streamlit**: keep conversation state in `st.session_state.messages`. Stream responses with `st.write_stream`. Catch exceptions from `core.assistant.answer()` and render them inside `st.error(...)` — US-01 AC4 requires visible errors, not blank screens or hangs.
+- **Streamlit**: keep conversation state in `st.session_state.messages`. Stream responses with `st.write_stream`. Catch exceptions from `core.assistant.answer()` and render them inside `st.error(...)` - US-01 AC4 requires visible errors, not blank screens or hangs.
 - **Anthropic tool-use**: implement the full tool-use loop (model returns `tool_use` → run tool → send `tool_result` → loop until `stop_reason == "end_turn"`). Do not stop after the first turn.
-- **MCP Python SDK**: expose exactly one tool, `ask_oohmedia_investor_chat(question: str)`. The server must run on stdio and log to stderr only — stdout is reserved for the MCP protocol.
-- **Marketstack (primary for OML)**: use the **v2** endpoint over **HTTPS** with symbol **`OML.AX`** — `https://api.marketstack.com/v2/eod?access_key=...&symbols=OML.AX`. Free tier supports HTTPS and ASX coverage on v2. (The Solution Design's `v1`/HTTP/`OML.XASX` guidance is stale; see `DECISIONS.md`.) Cache every response as JSON in `data/cache/` keyed by `{provider}_{symbol}_{function}_{params}.json`. Read from cache first, always.
-- **Alpha Vantage (secondary, scaffold)**: free tier is 25 requests/day and **does not cover ASX listings** — `OML.AX` returns an empty `{}`. Implementation is kept behind the `PriceProvider` interface for extensibility, but Marketstack is the actual provider for OML. Same caching rules apply.
-- **Secrets**: read from `os.environ`. Never hardcode keys. Maintain `.env.example` with `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `OPENAI_API_KEY`, `ALPHAVANTAGE_API_KEY`, `MARKETSTACK_API_KEY`.
+- **MCP Python SDK**: expose exactly one tool, `ask_oohmedia_investor_chat(question: str)`. The server must run on stdio and log to stderr only - stdout is reserved for the MCP protocol.
+- **Marketstack (primary for OML)**: use the **v2** endpoint over **HTTPS** with symbol **`OML.AX`** - `https://api.marketstack.com/v2/eod?access_key=...&symbols=OML.AX`. Free tier supports HTTPS and ASX coverage on v2. (The Solution Design's `v1`/HTTP/`OML.XASX` guidance is stale; see `DECISIONS.md`.) Cache every response as JSON in `data/cache/` keyed by `{provider}_{symbol}_{function}_{params}.json`. Read from cache first, always.
+- **Secrets**: read from `os.environ`. Never hardcode keys. Maintain `.env.example` with `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, `OPENAI_API_KEY`, `MARKETSTACK_API_KEY`.
 
 ## Commit message style
 
@@ -136,7 +135,7 @@ uv run pytest -q             # run all tests
 uv run pytest tests/test_retrieval.py -q   # run one file
 ```
 
-Every user story should land with at least one test that exercises the happy path through `core/`. Tests must not hit the real Anthropic, OpenAI, Alpha Vantage, or Marketstack APIs — mock the clients or use recorded fixtures under `tests/fixtures/`.
+Every user story should land with at least one test that exercises the happy path through `core/`. Tests must not hit the real Anthropic, OpenAI, or Marketstack APIs - mock the clients or use recorded fixtures under `tests/fixtures/`.
 
 ## When in doubt
 
